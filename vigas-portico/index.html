@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Visor IFC · Vigas pórtico</title>
+  <meta name="description" content="Visor IFC con simulación de la deformada para estudiantes">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath d='M4 30 L20 10 L36 30' fill='none' stroke='%230d1b2e' stroke-width='4' stroke-linejoin='round'/%3E%3Ccircle cx='20' cy='10' r='4' fill='%23e8590c'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./css/estilos.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three/three.module.js",
+      "three/addons/": "./vendor/three/addons/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header class="barra">
+    <div class="marca">
+      <svg class="logo" viewBox="0 0 40 40" aria-hidden="true">
+        <path d="M4 30 L20 10 L36 30" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/>
+        <path d="M4 30 Q20 37 36 30" fill="none" stroke="#e8590c" stroke-width="2.4" stroke-dasharray="3 2.6"/>
+        <circle cx="20" cy="10" r="2.6" fill="#e8590c"/>
+      </svg>
+      <div>
+        <h1>Visor IFC</h1>
+        <p id="nombreModelo">Cargando…</p>
+      </div>
+    </div>
+    <nav class="vistas" aria-label="Vistas">
+      <button type="button" data-vista="iso" class="activa">3D</button>
+      <button type="button" data-vista="planta">Planta</button>
+      <button type="button" data-vista="xz">Elevación X-Z</button>
+      <button type="button" data-vista="yz">Elevación Y-Z</button>
+      <button type="button" id="btnEncuadrar" title="Encuadrar el modelo">Encuadrar</button>
+    </nav>
+    <div class="acciones">
+      <label class="boton secundario" for="archivo" title="Abrir un IFC de tu computador (no se sube a ningún servidor)">Abrir IFC…</label>
+      <input type="file" id="archivo" accept=".ifc" hidden>
+      <button type="button" id="btnPanel" class="boton secundario solo-movil" aria-controls="panel" aria-expanded="false">Controles</button>
+    </div>
+  </header>
+
+  <main class="principal">
+    <aside id="panel" class="panel">
+      <section class="bloque" id="bloqueSim">
+        <h2>Simulación de la deformada</h2>
+        <button type="button" id="btnSimular" class="boton primario grande" disabled>
+          <span class="icono" aria-hidden="true">▶</span><span id="txtSimular">Simular deformación</span>
+        </button>
+        <p id="avisoSim" class="aviso" hidden></p>
+
+        <fieldset>
+          <legend>Cargas</legend>
+          <label class="fila-check"><input type="checkbox" id="chkPP" checked> Peso propio</label>
+          <div class="control">
+            <label for="numQ">Carga distribuida en vigas</label>
+            <div class="fila">
+              <input type="range" id="rngQ" min="0" max="10" step="0.1" value="0" aria-label="Carga distribuida en vigas">
+              <input type="number" id="numQ" min="0" max="100" step="0.1" value="0">
+              <span class="unidad">kN/m</span>
+            </div>
+          </div>
+          <div class="control">
+            <label for="numSX">Sismo X (coeficiente × peso propio)</label>
+            <div class="fila">
+              <input type="range" id="rngSX" min="-0.5" max="0.5" step="0.01" value="0" aria-label="Coeficiente sísmico en X">
+              <input type="number" id="numSX" min="-2" max="2" step="0.01" value="0">
+              <span class="unidad">g</span>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Escala de la deformación</legend>
+          <div class="fila">
+            <input type="range" id="rngEscala" min="0" max="5" step="0.01" value="2.3" aria-label="Escala de deformación (logarítmica)">
+            <span class="unidad">×</span>
+            <input type="number" id="numEscala" min="1" max="100000" step="1" value="200">
+          </div>
+          <div class="presets" role="group" aria-label="Escalas rápidas">
+            <button type="button" data-escala="1">×1</button>
+            <button type="button" data-escala="10">×10</button>
+            <button type="button" data-escala="100">×100</button>
+            <button type="button" data-escala="1000">×1000</button>
+            <button type="button" id="btnAuto" class="activa" title="Ajusta la escala para que la deformada se vea clara">Auto</button>
+          </div>
+          <label class="fila-check"><input type="checkbox" id="chkAnimar" checked> Animar (cargar y descargar)</label>
+          <label class="fila-check"><input type="checkbox" id="chkOriginal" checked> Mostrar posición original</label>
+        </fieldset>
+
+        <div id="resultado" class="resultado" hidden>
+          <div class="cifra"><span id="valUmax">—</span><small>mm</small></div>
+          <p id="txtUmax">desplazamiento máximo</p>
+          <p id="txtEscala" class="sutil"></p>
+        </div>
+        <p class="nota" id="notaAnalisis">Análisis lineal elástico (método de rigidez 3D) calculado a partir del modelo de ETABS. Resultados aproximados, con fines didácticos.</p>
+      </section>
+
+      <section class="bloque">
+        <h2>Capas</h2>
+        <label class="fila-check"><input type="checkbox" id="chkGrilla" checked> Ejes (grilla)</label>
+        <label class="fila-check"><input type="checkbox" id="chkAnalitico"> Modelo analítico y apoyos</label>
+        <ul class="leyenda-apoyos" id="leyendaApoyos" hidden>
+          <li><span class="simbolo empotrado"></span> Empotramiento (anclaje de tensores)</li>
+          <li><span class="simbolo parcial"></span> Apoyo restringido solo en X e Y</li>
+        </ul>
+        <p class="sutil" id="resumenModelo"></p>
+        <p class="sutil">Haz clic en una viga o un tensor para ver sus datos.</p>
+      </section>
+    </aside>
+
+    <div id="visor" class="visor">
+      <div id="leyenda" class="leyenda" hidden>
+        <div class="titulo-leyenda">Desplazamiento (mm)</div>
+        <div class="barra-color"></div>
+        <div class="marcas" id="marcasLeyenda"></div>
+      </div>
+      <div id="cargando" class="cargando">
+        <div class="spinner" aria-hidden="true"></div>
+        <p id="txtCargando">Cargando visor…</p>
+      </div>
+      <div id="tarjetaInfo" class="tarjeta-info" hidden>
+        <button type="button" id="btnCerrarInfo" class="cerrar" aria-label="Cerrar">×</button>
+        <div id="info"></div>
+      </div>
+      <div id="soltar" class="soltar" hidden>Suelta el archivo .ifc para abrirlo</div>
+      <p class="ayuda">Arrastra para girar · clic derecho o dos dedos para mover · rueda para acercar</p>
+    </div>
+  </main>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
