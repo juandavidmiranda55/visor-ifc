@@ -10,7 +10,8 @@ import {
 
 const RUTA_IFC = './modelo/Vigas_porticos_v3.ifc';
 const RUTA_ANALISIS = './modelo/analisis.json';
-const OBJETIVO = 0.04;          // la deformada máxima se dibuja como el 4 % del tamaño del modelo
+const esMovil = () => window.matchMedia('(max-width: 900px)').matches;
+const objetivo = () => (esMovil() ? 0.055 : 0.04);   // la deformada máxima se dibuja como ese % del tamaño del modelo
 const PERIODO = 2600;           // ms de un ciclo cargar-descargar
 const ESCALA_MAX = 100000;
 
@@ -82,6 +83,8 @@ const estado = {
 let pendiente = true;
 const pedirRender = () => { pendiente = true; };
 controles.addEventListener('change', pedirRender);
+let camaraMovida = false;
+controles.addEventListener('start', () => { camaraMovida = true; });
 
 function redimensionar() {
   const w = visor.clientWidth;
@@ -102,7 +105,14 @@ function ajustarOrto() {
   camOrto.right = semiAltoOrto * a;
   camOrto.updateProjectionMatrix();
 }
-new ResizeObserver(redimensionar).observe(visor);
+let tReencuadre = 0;
+new ResizeObserver(() => {
+  redimensionar();
+  if (!camaraMovida && estado.mallas.length) {
+    clearTimeout(tReencuadre);
+    tReencuadre = setTimeout(() => encuadrar(estado.vista, false), 120);
+  }
+}).observe(visor);
 
 renderer.setAnimationLoop((t) => {
   controles.update();
@@ -408,7 +418,7 @@ function recalcular() {
   }
   estado.umax = umax;
   estado.imax = imax;
-  if (estado.escalaAuto) estado.escala = Math.min(ESCALA_MAX, Math.max(1, escalaAuto(umax, OBJETIVO * estado.tamano)));
+  if (estado.escalaAuto) estado.escala = Math.min(ESCALA_MAX, Math.max(1, escalaAuto(umax, objetivo() * estado.tamano)));
   actualizarControlesEscala();
   if (estado.simulando) {
     pintarColores();
@@ -616,7 +626,7 @@ async function seleccionar(exp) {
   pedirRender();
   tarjeta.hidden = false;
   info.innerHTML = `<span class="etiqueta-tipo">${esc(tipoLegible(el))}</span><h3>${esc(el.nombre || 'Sin nombre')}</h3>`;
-  const filas = [['GlobalId', el.guid]];
+  const filas = [];
   let detalles = '';
   try {
     const psets = await estado.ifc.properties.getPropertySets(estado.modelID, exp, true);
@@ -635,7 +645,7 @@ async function seleccionar(exp) {
   if (estado.seleccion !== exp) return;
   info.innerHTML = `<span class="etiqueta-tipo">${esc(tipoLegible(el))}</span><h3>${esc(el.nombre || 'Sin nombre')}</h3>`
     + (el.descripcion ? `<p class="seccion">${esc(el.descripcion)}</p>` : '')
-    + '<div id="infoDesp"></div>' + filasHTML(filas) + detalles;
+    + '<div id="infoDesp"></div>' + filasHTML(filas) + detalles + filasHTML([['GlobalId', el.guid]]);
   actualizarDespSeleccion();
 }
 
@@ -651,22 +661,25 @@ function actualizarDespSeleccion() {
 }
 
 // ---------------------------------------------------------------- vistas
-const DIRECCIONES = { iso: [-1, 0.85, 1.25], planta: [0, 1, 0.0005], xz: [0, 0, 1], yz: [1, 0, 0] };
+const DIRECCIONES = { iso: [-1, 0.85, 1.25], isoVertical: [-0.35, 1.5, 1], planta: [0, 1, 0.0005], xz: [0, 0, 1], yz: [1, 0, 0] };
 function cajaEscena() {
   const caja = new THREE.Box3();
   for (const m of estado.mallas) caja.union(new THREE.Box3().setFromBufferAttribute(new THREE.BufferAttribute(m.base, 3)));
-  if (grupoGrilla.visible) {
+  if (grupoGrilla.visible && !esMovil()) {
     for (const o of grupoGrilla.children) if (o.isLine) caja.union(new THREE.Box3().setFromObject(o));
   }
   return caja;
 }
-function encuadrar(vista = estado.vista) {
+function encuadrar(vista = estado.vista, porUsuario = true) {
   estado.vista = vista;
+  if (porUsuario) camaraMovida = false;
+  redimensionar();
   const caja = cajaEscena();
   if (caja.isEmpty()) return;
   const centro = caja.getCenter(new THREE.Vector3());
   const radio = caja.getSize(new THREE.Vector3()).length() / 2;
-  const dir = new THREE.Vector3(...DIRECCIONES[vista]).normalize();
+  const vertical = vista === 'iso' && (camPersp.aspect || 1) < 0.85;
+  const dir = new THREE.Vector3(...DIRECCIONES[vertical ? 'isoVertical' : vista]).normalize();
   const orto = vista !== 'iso';
   usarCamara(orto ? camOrto : camPersp);
   camara.up.set(0, 1, 0);
@@ -680,7 +693,7 @@ function encuadrar(vista = estado.vista) {
     esquinas.push(new THREE.Vector3(x, y, z).sub(centro));
   }
   const aspecto = camPersp.aspect || 1;
-  const margen = 1.06;
+  const margen = esMovil() ? 1.03 : 1.06;
   if (orto) {
     let mx = 0;
     let my = 0;
@@ -746,13 +759,13 @@ $('btnSimular').addEventListener('click', () => (estado.simulando ? detenerSimul
 for (const b of document.querySelectorAll('[data-vista]')) b.addEventListener('click', () => encuadrar(b.dataset.vista));
 $('btnEncuadrar').addEventListener('click', () => encuadrar());
 
-function abrirPanel(abrir) {
+$('btnMas').addEventListener('click', () => {
   const panel = $('panel');
-  const abierto = abrir ?? !panel.classList.contains('abierto');
-  panel.classList.toggle('abierto', abierto);
-  $('btnPanel').setAttribute('aria-expanded', String(abierto));
-}
-$('btnPanel').addEventListener('click', () => abrirPanel());
+  const abierta = panel.classList.toggle('expandida');
+  $('btnMas').setAttribute('aria-expanded', String(abierta));
+  $('txtMas').textContent = abierta ? 'Ocultar opciones' : 'Cargas y opciones';
+  if (abierta) panel.scrollTop = 0;
+});
 
 async function abrirArchivo(archivo) {
   try {
